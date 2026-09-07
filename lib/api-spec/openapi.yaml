@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: billing
+    description: Stripe billing operations
 paths:
   /healthz:
     get:
@@ -24,6 +26,85 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /billing/summary:
+    get:
+      operationId: getBillingSummary
+      tags: [billing]
+      summary: Get Stripe billing summary
+      description: Returns the current subscription and transfer-fee summary for the connected Stripe account.
+      responses:
+        "200":
+          description: Billing summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingSummary"
+        "503":
+          description: Billing is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /billing/ledger:
+    get:
+      operationId: getBillingLedger
+      tags: [billing]
+      summary: Get transfer-fee ledger
+      description: Returns recent completed transfer fees calculated at the platform fee rate.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 25
+      responses:
+        "200":
+          description: Transfer fee ledger
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BillingLedgerEntry"
+        "503":
+          description: Billing is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /billing/checkout-session:
+    post:
+      operationId: createBillingCheckoutSession
+      tags: [billing]
+      summary: Create a hospital subscription checkout session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckoutSessionInput"
+      responses:
+        "200":
+          description: Checkout session URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutSession"
+        "400":
+          description: Invalid checkout request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Billing is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +114,103 @@ components:
           type: string
       required:
         - status
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+    BillingSummary:
+      type: object
+      properties:
+        subscriptionStatus:
+          type: string
+          enum: [none, active, past_due, canceled, trialing]
+        monthlySubscriptionAmount:
+          type: integer
+          minimum: 0
+        currency:
+          type: string
+        platformFeeRate:
+          type: number
+          format: float
+        feesCollected:
+          type: integer
+          minimum: 0
+        completedTransfers:
+          type: integer
+          minimum: 0
+        lastSyncedAt:
+          type: string
+          format: date-time
+      required:
+        - subscriptionStatus
+        - monthlySubscriptionAmount
+        - currency
+        - platformFeeRate
+        - feesCollected
+        - completedTransfers
+        - lastSyncedAt
+    BillingLedgerEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        transferId:
+          type: ["string", "null"]
+        description:
+          type: string
+        grossAmount:
+          type: integer
+          minimum: 0
+        feeAmount:
+          type: integer
+          minimum: 0
+        currency:
+          type: string
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - transferId
+        - description
+        - grossAmount
+        - feeAmount
+        - currency
+        - status
+        - createdAt
+    CheckoutSessionInput:
+      type: object
+      properties:
+        priceId:
+          type: string
+          minLength: 1
+        successUrl:
+          type: string
+          format: uri
+        cancelUrl:
+          type: string
+          format: uri
+        customerEmail:
+          type: ["string", "null"]
+          format: email
+      required:
+        - priceId
+        - successUrl
+        - cancelUrl
+    CheckoutSession:
+      type: object
+      properties:
+        url:
+          type: ["string", "null"]
+          format: uri
+        sessionId:
+          type: string
+      required:
+        - url
+        - sessionId
 

@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "MedRebalance"
+description = "A secure hospital inventory balancing workspace that helps pharmacists identify surplus medicines, coordinate transfers, and track settlement and billing activity across a clinical network."
+version = "1.0.0"
+id = "artifacts/med-rebalance"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18682
+
+[services.development]
+run = "pnpm --filter @workspace/med-rebalance run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/med-rebalance", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/med-rebalance/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18682"
+BASE_PATH = "/"
