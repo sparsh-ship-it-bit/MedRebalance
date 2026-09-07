@@ -1,0 +1,43 @@
+A heads-up first: if you're switching to Replit now, don't start over — **import your existing project** (upload the zip, or push it to GitHub and import the repo into Replit) so Replit Agent works on top of what Bolt already built, not a blank rebuild. Otherwise you lose all the auth/algorithm work already done.
+
+Once imported, here's the prompt — combining the production-readiness additions with the UI color change:
+
+---
+
+**Prompt for Replit Agent:**
+
+*"This is an existing React + TypeScript + Supabase project called MedRebalance. Do not rebuild it from scratch or change the tech stack — work on top of the existing codebase.*
+
+*### 1. UI Color Update*
+*Update the color scheme across the app to a professional medical/clinical trust palette — deep teal (#0F766E) as primary, soft blue-gray (#64748B) as secondary, white/off-white backgrounds, and keep red/yellow/green strictly reserved for expiry-alert status indicators (don't use them decoratively elsewhere). Update this consistently across buttons, headers, nav, and cards — check `tailwind.config` and any color constants file first before hardcoding new colors.*
+
+*### 2. Billing & Payments (Stripe)*
+*- Integrate Stripe (test mode) for monthly SaaS subscription per hospital and the 3.5% transaction fee per completed transfer.*
+*- Add a "Billing" tab in Admin dashboard showing subscription status per hospital and collected fee ledger.*
+
+*### 3. Notifications*
+*- Email alerts via Supabase Edge Functions (Resend/SendGrid) for: batch flagged 'At-Risk Surplus', shortage matched, transfer status changed.*
+*- In-app notification bell for the logged-in hospital's recent events.*
+
+*### 4. Error Handling & Reliability*
+*- Wrap all Supabase calls in try/catch with user-facing error messages.*
+*- Add retry logic for failed requests.*
+*- Add a global error boundary so one crash doesn't blank the whole app.*
+
+*### 5. Audit Trail*
+*- New `audit_log` table (user_id, action, table, record_id, timestamp) for every inventory change, transfer, and settlement.*
+
+*### 6. Security Hardening*
+*- Verify RLS: pharmacists write-scoped to their own hospital only; audit_log admin-read-only.*
+*- Server-side input validation on all forms, not just client-side.*
+
+*### 7. Production Checklist*
+*- Add a `/health` status check.*
+*- Fail loudly on startup if Supabase/Stripe env vars are missing.*
+*- Add/update README with setup steps and architecture overview.*
+
+*Do not change the surplus/rebalance/settlement algorithm logic in `src/lib/`. Confirm each numbered section works before moving to the next, and don't touch anything not listed above."*
+
+---
+
+If you want a different color direction than teal/blue (e.g., you want it to feel more "startup," less "hospital"), tell me the vibe and I'll swap the palette.
