@@ -21,6 +21,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
+import { retry } from '@/lib/retry';
 
 export type UserRole = 'pharmacist' | 'admin' | 'network_admin';
 
@@ -51,11 +52,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const fetchUser = useCallback(async (uid: string, email: string) => {
-    const { data, error } = await supabase
+    const { data, error } = await retry(() => supabase
       .from('hospital_users')
       .select('hospital_id, role')
       .eq('user_id', uid)
-      .maybeSingle();
+      .maybeSingle());
 
     if (error) {
       console.error('Failed to fetch hospital_users:', error);
@@ -78,13 +79,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
+    retry(() => supabase.auth.getSession()).then(({ data: { session: s } }) => {
       setSession(s);
       if (s?.user) {
         fetchUser(s.user.id, s.user.email ?? '').finally(() => setLoading(false));
       } else {
         setLoading(false);
       }
+    }).catch((error) => {
+      console.error('Failed to restore Supabase session:', error);
+      setLoading(false);
     });
 
     // Listen for auth changes — wrap async work to avoid deadlock
@@ -105,7 +109,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [fetchUser]);
 
   const signOut = useCallback(async () => {
-    await supabase.auth.signOut();
+    await retry(() => supabase.auth.signOut());
     setUser(null);
   }, []);
 

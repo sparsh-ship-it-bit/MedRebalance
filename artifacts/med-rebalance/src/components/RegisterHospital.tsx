@@ -17,6 +17,7 @@
 import { useState } from 'react';
 import { Activity, ArrowLeft, MapPin, Building2, Mail, Lock } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { retry } from '@/lib/retry';
 import { useToast } from '@/components/Toast';
 
 interface Props {
@@ -64,10 +65,10 @@ export default function RegisterHospital({ onBack }: Props) {
 
     try {
       // Step 1: Create auth user
-      const { data: authData, error: authError } = await supabase.auth.signUp({
+      const { data: authData, error: authError } = await retry(() => supabase.auth.signUp({
         email,
         password,
-      });
+      }));
       if (authError) throw authError;
       if (!authData.user) throw new Error('Failed to create user account');
 
@@ -75,7 +76,7 @@ export default function RegisterHospital({ onBack }: Props) {
       const coords = CITY_COORDS[city];
 
       // Step 2: Insert hospital
-      const { data: hospitalData, error: hospitalError } = await supabase
+      const { data: hospitalData, error: hospitalError } = await retry(() => supabase
         .from('hospitals')
         .insert({
           name: hospitalName.trim(),
@@ -85,16 +86,16 @@ export default function RegisterHospital({ onBack }: Props) {
           type: hospitalType,
         })
         .select()
-        .single();
+        .single());
 
       if (hospitalError) throw hospitalError;
 
       // Step 3: Link user to hospital with admin role
-      const { error: linkError } = await supabase.from('hospital_users').insert({
+      const { error: linkError } = await retry(() => supabase.from('hospital_users').insert({
         user_id: userId,
         hospital_id: hospitalData.id,
         role: 'admin',
-      });
+      }));
 
       if (linkError) throw linkError;
 

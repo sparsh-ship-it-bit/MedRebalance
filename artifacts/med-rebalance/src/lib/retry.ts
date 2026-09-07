@@ -12,6 +12,15 @@
 const DEFAULT_MAX_RETRIES = 2;
 const DEFAULT_BASE_DELAY = 500;
 
+function isRetryable(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return true;
+  const candidate = error as { status?: number; code?: string; message?: string };
+  if (typeof candidate.status === 'number') {
+    return candidate.status === 408 || candidate.status === 425 || candidate.status === 429 || candidate.status >= 500;
+  }
+  return !candidate.code || /network|timeout|fetch|temporar/i.test(candidate.message ?? '');
+}
+
 export async function retry<T>(
   fn: () => Promise<T>,
   maxRetries: number = DEFAULT_MAX_RETRIES,
@@ -24,9 +33,11 @@ export async function retry<T>(
       return await fn();
     } catch (error) {
       lastError = error;
-      if (attempt < maxRetries) {
+      if (attempt < maxRetries && isRetryable(error)) {
         const delay = baseDelay * Math.pow(2, attempt);
         await new Promise((resolve) => setTimeout(resolve, delay));
+      } else {
+        break;
       }
     }
   }

@@ -10,6 +10,7 @@
  */
 
 import { supabase } from './supabase';
+import { retry } from './retry';
 
 export interface NotificationEvent {
   id: string;
@@ -26,9 +27,19 @@ export async function createNotification(event: {
   event_type: string;
   title: string;
   message: string;
+  source_key?: string;
 }): Promise<void> {
-  const { error } = await supabase.from('notification_events').insert(event);
-  if (error) console.error('Failed to create notification:', error);
+  try {
+    const { error } = await retry(() => supabase
+      .from('notification_events')
+      .upsert(event, { onConflict: 'hospital_id,event_type,source_key', ignoreDuplicates: true }));
+    if (error) throw error;
+    await retry(() => supabase.functions.invoke('send-notification-email', {
+      body: event,
+    }));
+  } catch (error) {
+    console.error('Failed to create or email notification:', error);
+  }
 }
 
 export async function fetchNotifications(
@@ -45,16 +56,20 @@ export async function fetchNotifications(
     query = query.eq('hospital_id', hospitalId);
   }
 
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data ?? []) as NotificationEvent[];
+  try {
+    const { data, error } = await retry(() => query);
+    if (error) throw error;
+    return (data ?? []) as NotificationEvent[];
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : 'Unable to load notifications.');
+  }
 }
 
 export async function markNotificationRead(id: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await retry(() => supabase
     .from('notification_events')
     .update({ is_read: true })
-    .eq('id', id);
+    .eq('id', id));
   if (error) throw error;
 }
 
@@ -68,6 +83,6 @@ export async function markAllNotificationsRead(hospitalId: string, isNetworkAdmi
     query = query.eq('hospital_id', hospitalId);
   }
 
-  const { error } = await query;
+  const { error } = await retry(() => query);
   if (error) throw error;
 }

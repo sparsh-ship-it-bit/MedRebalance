@@ -57,7 +57,7 @@ export default function TransferMap({ hospitals, transfers, stockouts }: Props) 
         html: `
           <div style="
             width: 28px; height: 28px; border-radius: 50%;
-            background: ${hasStockout ? '#ef4444' : '#0d9488'};
+            background: ${hasStockout ? '#64748b' : '#0f766e'};
             border: 3px solid white;
             box-shadow: 0 2px 8px rgba(0,0,0,0.3);
             display: flex; align-items: center; justify-content: center;
@@ -73,7 +73,7 @@ export default function TransferMap({ hospitals, transfers, stockouts }: Props) 
         <div style="font-family: system-ui, sans-serif; min-width: 160px;">
           <div style="font-weight: 600; font-size: 14px; color: #1e293b; margin-bottom: 4px;">${h.name}</div>
           <div style="font-size: 12px; color: #64748b;">${h.address}</div>
-          ${hasStockout ? '<div style="font-size: 11px; color: #ef4444; margin-top: 4px; font-weight: 500;">Active stockout</div>' : ''}
+          ${hasStockout ? '<div style="font-size: 11px; color: #64748b; margin-top: 4px; font-weight: 500;">Active stockout</div>' : ''}
         </div>
       `);
     });

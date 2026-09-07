@@ -14,6 +14,11 @@
   --blue-gray: 215 16% 43%;
   --display: 'Space Grotesk', sans-serif;
   --body: 'DM Sans', sans-serif;
+  --clinical-primary: #0f766e;
+  --clinical-primary-hover: #0b625c;
+  --clinical-primary-soft: #e7f4f1;
+  --clinical-secondary: #64748b;
+  --clinical-canvas: #f7fafc;
 }
 
 * { box-sizing: border-box; }
@@ -37,6 +42,12 @@ button:disabled { cursor: not-allowed; }
     @apply w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-600/25 focus:border-teal-600 transition-all;
   }
 }
+
+.bg-clinical-primary { background-color: var(--clinical-primary); }
+.bg-clinical-primary-soft { background-color: var(--clinical-primary-soft); }
+.text-clinical-primary { color: var(--clinical-primary); }
+.text-clinical-secondary { color: var(--clinical-secondary); }
+.border-clinical-primary { border-color: var(--clinical-primary); }
 
 /* Calm, high-contrast workspace defaults. */
 .font-display, h1, h2, h3 { font-family: var(--display); }

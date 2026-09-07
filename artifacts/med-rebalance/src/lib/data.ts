@@ -85,7 +85,7 @@ export async function addInventoryBatch(batch: {
   unit_cost: number;
   daily_run_rate: number;
 }): Promise<void> {
-  const { data, error } = await supabase.from('inventory_batches').insert(batch).select().single();
+  const { data, error } = await retry(() => supabase.from('inventory_batches').insert(batch).select().single());
   if (error) throw error;
   await logAudit({
     hospital_id: batch.hospital_id,
@@ -99,6 +99,7 @@ export async function addInventoryBatch(batch: {
     event_type: 'inventory_added',
     title: 'New inventory batch added',
     message: `Batch ${batch.batch_number} with ${batch.quantity} units added.`,
+    source_key: data?.id,
   });
 }
 
@@ -122,12 +123,14 @@ export async function fetchOpenStockouts(): Promise<StockoutWithRelations[]> {
 }
 
 export async function fetchAllStockouts(): Promise<StockoutWithRelations[]> {
-  const { data, error } = await supabase
-    .from('stockout_requests')
-    .select('*, hospital: hospitals(*), sku: skus(*)')
-    .order('created_at', { ascending: false });
-  if (error) throw error;
-  return (data ?? []) as StockoutWithRelations[];
+  return retry(async () => {
+    const { data, error } = await supabase
+      .from('stockout_requests')
+      .select('*, hospital: hospitals(*), sku: skus(*)')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data ?? []) as StockoutWithRelations[];
+  });
 }
 
 export async function createStockoutRequest(request: {
@@ -136,10 +139,10 @@ export async function createStockoutRequest(request: {
   quantity_needed: number;
   urgency: Urgency;
 }): Promise<void> {
-  const { data, error } = await supabase.from('stockout_requests').insert({
+  const { data, error } = await retry(() => supabase.from('stockout_requests').insert({
     ...request,
     status: 'open',
-  }).select().single();
+  }).select().single());
   if (error) throw error;
   await logAudit({
     hospital_id: request.hospital_id,
@@ -153,6 +156,7 @@ export async function createStockoutRequest(request: {
     event_type: 'stockout_reported',
     title: 'Stockout reported',
     message: `Shortage of ${request.quantity_needed} units reported with ${request.urgency} urgency.`,
+    source_key: data?.id,
   });
 }
 
@@ -188,7 +192,7 @@ export async function createTransfers(
     transfer_cost: number;
   }>
 ): Promise<void> {
-  const { data, error } = await supabase.from('transfers').insert(transfers).select();
+  const { data, error } = await retry(() => supabase.from('transfers').insert(transfers).select());
   if (error) throw error;
   for (const t of transfers) {
     await logAudit({
@@ -202,12 +206,14 @@ export async function createTransfers(
       event_type: 'transfer_created',
       title: 'Transfer dispatched',
       message: `${t.quantity} units sent to destination hospital (${t.distance_km} km).`,
+      source_key: `${data?.find((created) => created.from_hospital_id === t.from_hospital_id && created.to_hospital_id === t.to_hospital_id)?.id ?? t.batch_id}:created`,
     });
     await createNotification({
       hospital_id: t.to_hospital_id,
       event_type: 'transfer_incoming',
       title: 'Incoming transfer',
       message: `${t.quantity} units incoming from source hospital.`,
+      source_key: `${data?.find((created) => created.from_hospital_id === t.from_hospital_id && created.to_hospital_id === t.to_hospital_id)?.id ?? t.batch_id}:incoming`,
     });
   }
 }
@@ -218,7 +224,7 @@ export async function updateTransferStatus(
 ): Promise<void> {
   const update: Record<string, unknown> = { status };
   if (status === 'completed') update.completed_at = new Date().toISOString();
-  const { error } = await supabase.from('transfers').update(update).eq('id', transferId);
+  const { error } = await retry(() => supabase.from('transfers').update(update).eq('id', transferId));
   if (error) throw error;
   await logAudit({
     action: `transfer.${status}`,
@@ -251,7 +257,7 @@ export async function createTransaction(transaction: {
   platform_fee: number;
   waste_cost_prevented: number;
 }): Promise<void> {
-  const { data, error } = await supabase.from('transactions').insert(transaction).select().single();
+  const { data, error } = await retry(() => supabase.from('transactions').insert(transaction).select().single());
   if (error) throw error;
   await logAudit({
     action: 'transaction.settle',
@@ -267,7 +273,7 @@ export async function resetDemoData(): Promise<void> {
   // Delete in dependency order (child tables first)
   const tables = ['transactions', 'transfers', 'stockout_requests', 'inventory_batches'];
   for (const table of tables) {
-    const { error } = await supabase.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    const { error } = await retry(() => supabase.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000'));
     if (error) throw error;
   }
 
@@ -279,7 +285,7 @@ export async function resetDemoData(): Promise<void> {
     { id: 'a1000000-0000-0000-0000-000000000004', name: 'Fortis Heart Institute', address: 'Mulund-Goregaon Link Rd, Mulund W, Mumbai', lat: 19.1727, lng: 72.9455, type: 'hospital' },
     { id: 'a1000000-0000-0000-0000-000000000005', name: 'Unity Multispecialty Hospital', address: 'Eastern Express Hwy, Vikhroli E, Mumbai', lat: 19.1167, lng: 72.926, type: 'hospital' },
   ];
-  const { error: hErr } = await supabase.from('hospitals').upsert(hospitals, { onConflict: 'id' });
+  const { error: hErr } = await retry(() => supabase.from('hospitals').upsert(hospitals, { onConflict: 'id' }));
   if (hErr) throw hErr;
 
   // Re-seed SKUs
@@ -300,7 +306,7 @@ export async function resetDemoData(): Promise<void> {
     { id: 'b2000000-0000-0000-0000-000000000014', name: 'Packed Red Blood Cells', category: 'Blood Product', unit_cost: 1500.00, cold_chain_required: true, default_daily_run_rate: 3 },
     { id: 'b2000000-0000-0000-0000-000000000015', name: 'Furosemide', category: 'Diuretic', unit_cost: 75.00, cold_chain_required: false, default_daily_run_rate: 9 },
   ];
-  const { error: sErr } = await supabase.from('skus').upsert(skus, { onConflict: 'id' });
+  const { error: sErr } = await retry(() => supabase.from('skus').upsert(skus, { onConflict: 'id' }));
   if (sErr) throw sErr;
 
   // Re-seed inventory batches
@@ -331,7 +337,7 @@ export async function resetDemoData(): Promise<void> {
     { id: 'c3000000-0000-0000-0000-000000000024', hospital_id: 'a1000000-0000-0000-0000-000000000005', sku_id: 'b2000000-0000-0000-0000-000000000010', batch_number: 'MDZ-2026X', quantity: 180, expiry_date: '2026-09-15', unit_cost: 95.00, daily_run_rate: 7, status: 'active' },
     { id: 'c3000000-0000-0000-0000-000000000025', hospital_id: 'a1000000-0000-0000-0000-000000000005', sku_id: 'b2000000-0000-0000-0000-000000000007', batch_number: 'INS-2026Y', quantity: 260, expiry_date: '2026-11-20', unit_cost: 850.00, daily_run_rate: 6, status: 'active' },
   ];
-  const { error: bErr } = await supabase.from('inventory_batches').upsert(batches, { onConflict: 'id' });
+  const { error: bErr } = await retry(() => supabase.from('inventory_batches').upsert(batches, { onConflict: 'id' }));
   if (bErr) throw bErr;
 
   // Re-seed stockout requests
@@ -340,7 +346,7 @@ export async function resetDemoData(): Promise<void> {
     { id: 'd4000000-0000-0000-0000-000000000002', hospital_id: 'a1000000-0000-0000-0000-000000000005', sku_id: 'b2000000-0000-0000-0000-000000000002', quantity_needed: 30, urgency: 'urgent', status: 'open' },
     { id: 'd4000000-0000-0000-0000-000000000003', hospital_id: 'a1000000-0000-0000-0000-000000000004', sku_id: 'b2000000-0000-0000-0000-000000000004', quantity_needed: 40, urgency: 'routine', status: 'open' },
   ];
-  const { error: soErr } = await supabase.from('stockout_requests').upsert(stockouts, { onConflict: 'id' });
+  const { error: soErr } = await retry(() => supabase.from('stockout_requests').upsert(stockouts, { onConflict: 'id' }));
   if (soErr) throw soErr;
 
   // Re-seed hospital_users link for the demo network_admin account
@@ -349,7 +355,7 @@ export async function resetDemoData(): Promise<void> {
     hospital_id: 'a1000000-0000-0000-0000-000000000001',
     role: 'network_admin',
   };
-  const { error: huErr } = await supabase.from('hospital_users').upsert(demoUserLink, { onConflict: 'user_id,hospital_id' });
+  const { error: huErr } = await retry(() => supabase.from('hospital_users').upsert(demoUserLink, { onConflict: 'user_id,hospital_id' }));
   if (huErr) throw huErr;
 }
 
@@ -359,11 +365,11 @@ export async function resetDemoData(): Promise<void> {
  */
 export async function completeTransfer(transferId: string): Promise<void> {
   // 1. Fetch the transfer with batch info
-  const { data: transfer, error: tfError } = await supabase
+  const { data: transfer, error: tfError } = await retry(() => supabase
     .from('transfers')
     .select('*, batch: inventory_batches(*)')
     .eq('id', transferId)
-    .maybeSingle();
+    .maybeSingle());
   if (tfError) throw tfError;
   if (!transfer) throw new Error('Transfer not found');
 
@@ -372,10 +378,10 @@ export async function completeTransfer(transferId: string): Promise<void> {
 
   // 3. Decrement batch quantity
   const newQty = (transfer.batch as InventoryBatch).quantity - transfer.quantity;
-  const { error: batchError } = await supabase
+  const { error: batchError } = await retry(() => supabase
     .from('inventory_batches')
     .update({ quantity: Math.max(0, newQty) })
-    .eq('id', transfer.batch_id);
+    .eq('id', transfer.batch_id));
   if (batchError) throw batchError;
 
   // 4. Record settlement transaction
@@ -389,11 +395,13 @@ export async function completeTransfer(transferId: string): Promise<void> {
     event_type: 'transfer_completed',
     title: 'Transfer completed',
     message: `${transfer.quantity} units successfully delivered. Settlement recorded.`,
+    source_key: `${transferId}:completed`,
   });
   await createNotification({
     hospital_id: transfer.to_hospital_id,
     event_type: 'transfer_received',
     title: 'Transfer received',
     message: `${transfer.quantity} units received and added to inventory.`,
+    source_key: `${transferId}:received`,
   });
 }

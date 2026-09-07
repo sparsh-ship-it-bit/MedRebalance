@@ -15,6 +15,7 @@
  */
 
 import { supabase } from './supabase';
+import { retry } from './retry';
 
 export interface HospitalBilling {
   hospital_id: string;
@@ -26,15 +27,15 @@ export interface HospitalBilling {
 }
 
 export function isStripeConfigured(): boolean {
-  return !!import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
+  return !!import.meta.env.VITE_STRIPE_PRICE_ID;
 }
 
 export async function fetchBillingStatus(hospitalId: string): Promise<HospitalBilling> {
-  const { data, error } = await supabase
+  const { data, error } = await retry(() => supabase
     .from('hospital_billing')
     .select('*')
     .eq('hospital_id', hospitalId)
-    .maybeSingle();
+    .maybeSingle());
 
   if (error) throw error;
 
@@ -53,9 +54,9 @@ export async function fetchBillingStatus(hospitalId: string): Promise<HospitalBi
 }
 
 export async function fetchAllBillingStatuses(): Promise<HospitalBilling[]> {
-  const { data, error } = await supabase
+  const { data, error } = await retry(() => supabase
     .from('hospital_billing')
-    .select('*');
+    .select('*'));
 
   if (error) throw error;
   return (data ?? []) as HospitalBilling[];
@@ -64,9 +65,9 @@ export async function fetchAllBillingStatuses(): Promise<HospitalBilling[]> {
 export async function startSubscription(hospitalId: string, hospitalName: string): Promise<string | null> {
   if (!isStripeConfigured()) return null;
 
-  const { data, error } = await supabase.functions.invoke('create-checkout-session', {
+  const { data, error } = await retry(() => supabase.functions.invoke('create-checkout-session', {
     body: { hospital_id: hospitalId, hospital_name: hospitalName },
-  });
+  }));
 
   if (error) throw error;
   return data?.url ?? null;

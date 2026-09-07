@@ -11,6 +11,7 @@
  */
 
 import { supabase } from './supabase';
+import { retry } from './retry';
 
 export async function logAudit(entry: {
   user_id?: string;
@@ -21,14 +22,14 @@ export async function logAudit(entry: {
   details?: Record<string, unknown>;
 }): Promise<void> {
   try {
-    const { error } = await supabase.from('audit_log').insert({
+    const { error } = await retry(() => supabase.from('audit_log').insert({
       user_id: entry.user_id ?? null,
       hospital_id: entry.hospital_id ?? null,
       action: entry.action,
       table_name: entry.table_name,
       record_id: entry.record_id ?? null,
       details: entry.details ?? {},
-    });
+    }));
     if (error) console.error('Failed to log audit entry:', error);
   } catch (err) {
     console.error('Audit logging failed:', err);
@@ -47,11 +48,15 @@ export interface AuditLogEntry {
 }
 
 export async function fetchAuditLogs(limit: number = 50): Promise<AuditLogEntry[]> {
-  const { data, error } = await supabase
-    .from('audit_log')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(limit);
-  if (error) throw error;
-  return (data ?? []) as AuditLogEntry[];
+  try {
+    const { data, error } = await retry(() => supabase
+      .from('audit_log')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(limit));
+    if (error) throw error;
+    return (data ?? []) as AuditLogEntry[];
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : 'Unable to load the audit trail.');
+  }
 }
