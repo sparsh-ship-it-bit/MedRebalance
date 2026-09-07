@@ -113,9 +113,7 @@ export default function LoginScreen({ onGoRegister }: Props) {
               </button>
             </p>
           </div>
-        </div>
-
-        <div className="mt-5 flex items-start gap-3 rounded-xl border border-[#c5e6df] bg-[#f1faf8] p-4">
+         <div className="mt-5 flex items-start gap-3 rounded-xl border border-[#c5e6df] bg-[#f1faf8] p-4">
           <Shield className="mt-0.5 h-4 w-4 flex-shrink-0 text-[#0f766e]" />
           <div><p className="text-xs font-semibold text-[#25645f]">Demo access</p><p className="mt-1 text-xs leading-5 text-[#52726e]"><span className="font-mono">admin@medrebalance.demo</span> · <span className="font-mono">demo1234</span></p></div>
         </div>
