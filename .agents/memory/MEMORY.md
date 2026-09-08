@@ -1,0 +1,1 @@
+- [Bundled runtime assets](bundled-runtime-assets.md) — when bundling a dependency that loads files relative to its runtime directory, copy those non-code assets into the bundled output.
