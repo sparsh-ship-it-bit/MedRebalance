@@ -61,8 +61,8 @@ app.use("/api", router);
 const frontendDist = path.resolve(process.cwd(), "artifacts/med-rebalance/dist/public");
 if (existsSync(frontendDist)) {
   app.use(express.static(frontendDist));
-  app.get("*", (req, res, next) => {
-    if (req.path.startsWith("/api")) {
+  app.use((req, res, next) => {
+    if (req.path.startsWith("/api") || req.method !== "GET") {
       next();
       return;
     }
