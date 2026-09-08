@@ -5,9 +5,9 @@ import { defineConfig } from 'vite';
 
 import runtimeErrorOverlay from '@replit/vite-plugin-runtime-error-modal';
 
-// Replit normally injects these values. Defaults keep local builds and
-// deployments from crashing before Vite can even start.
-const port = Number(process.env.PORT || 5173);
+// Keep the frontend and API on separate ports during development. Production
+// uses the API server as the single public process.
+const port = Number(process.env.VITE_PORT || 5173);
 const basePath = process.env.BASE_PATH || '/';
 
 export default defineConfig({
