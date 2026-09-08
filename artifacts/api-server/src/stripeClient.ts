@@ -42,13 +42,18 @@ async function getStripeCredentials(): Promise<StripeCredentials> {
   };
   const settings = payload.items?.[0]?.settings;
 
-  if (!settings?.secret_key) {
-    throw new Error("Stripe connection is missing its secret key.");
+  const secretKey = settings?.secret_key ?? process.env.STRIPE_SECRET_KEY;
+
+  if (!secretKey) {
+    throw new Error(
+      "Stripe connection is missing its secret key. Configure the Stripe connection or set STRIPE_SECRET_KEY.",
+    );
   }
 
   return {
-    secretKey: settings.secret_key,
-    webhookSecret: settings.webhook_secret,
+    secretKey,
+    webhookSecret:
+      settings.webhook_secret ?? process.env.STRIPE_WEBHOOK_SECRET,
   };
 }
 
