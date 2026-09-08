@@ -56,9 +56,17 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);
 
-// In production, the API server also serves the compiled React app so the
-// deployment only needs one public web process/port.
-const frontendDist = path.resolve(process.cwd(), "artifacts/med-rebalance/dist/public");
+// The API server is bundled into artifacts/api-server/dist. Resolve the
+// frontend relative to that output instead of relying on the process cwd.
+const frontendDist = path.resolve(
+  import.meta.dirname,
+  "..",
+  "..",
+  "med-rebalance",
+  "dist",
+  "public",
+);
+
 if (existsSync(frontendDist)) {
   app.use(express.static(frontendDist));
   app.use((req, res, next) => {
