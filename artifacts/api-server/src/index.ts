@@ -6,26 +6,26 @@ import { getStripeSync } from "./stripeClient";
 async function initializeStripe() {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
-    throw new Error("DATABASE_URL must be set before starting the API server.");
+    logger.warn("DATABASE_URL is not configured; starting API without Stripe synchronization.");
+    return;
   }
 
-  await runMigrations({ databaseUrl, schema: "stripe" });
-  const sync = await getStripeSync();
-  const domain = process.env.REPLIT_DOMAINS?.split(",")[0];
-  if (domain) {
-    await sync.findOrCreateManagedWebhook(`https://${domain}/api/stripe/webhook`);
+  try {
+    await runMigrations({ databaseUrl, schema: "stripe" });
+    const sync = await getStripeSync();
+    const domain = process.env.REPLIT_DOMAINS?.split(",")[0];
+    if (domain) {
+      await sync.findOrCreateManagedWebhook(`https://${domain}/api/stripe/webhook`);
+    }
+    await sync.syncBackfill();
+  } catch (error) {
+    // Stripe is an optional billing integration. It must not prevent the
+    // health endpoint and the rest of the application from starting.
+    logger.error({ err: error }, "Stripe initialization failed; continuing without Stripe sync");
   }
-  await sync.syncBackfill();
 }
 
-const rawPort = process.env["PORT"];
-
-if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
-}
-
+const rawPort = process.env["PORT"] || "5000";
 const port = Number(rawPort);
 
 if (Number.isNaN(port) || port <= 0) {
