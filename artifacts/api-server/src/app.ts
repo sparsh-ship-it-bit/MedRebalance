@@ -29,6 +29,14 @@ app.use(
   }),
 );
 
+app.get("/api/health", (_req, res) => {
+  res.status(200).json({
+    ok: true,
+    service: "medrebalance-api",
+    timestamp: new Date().toISOString(),
+  });
+});
+
 app.post(
   "/api/stripe/webhook",
   express.raw({ type: "application/json" }),
