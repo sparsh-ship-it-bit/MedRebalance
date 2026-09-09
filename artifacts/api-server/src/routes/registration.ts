@@ -24,8 +24,10 @@ function allowed(req: Request): boolean {
 
 function config() {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceKey) throw new Error("Server registration is not configured. Add SUPABASE_SERVICE_ROLE_KEY to Render.");
+  const serviceKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceKey) {
+    throw new Error("Server registration is not configured. Add SUPABASE_SECRET_KEY to Render.");
+  }
   return { url: url.replace(/\/$/, ""), serviceKey };
 }
 
@@ -33,7 +35,11 @@ async function supabaseRequest(path: string, init: RequestInit = {}) {
   const { url, serviceKey } = config();
   const headers = new Headers(init.headers);
   headers.set("apikey", serviceKey);
-  headers.set("Authorization", `Bearer ${serviceKey}`);
+  // Legacy service_role keys are JWTs and traditionally use Authorization.
+  // New sb_secret_ keys authenticate through apikey and should not be sent as JWTs.
+  if (!serviceKey.startsWith("sb_secret_")) {
+    headers.set("Authorization", `Bearer ${serviceKey}`);
+  }
   headers.set("Content-Type", "application/json");
   return fetch(`${url}${path}`, { ...init, headers });
 }
