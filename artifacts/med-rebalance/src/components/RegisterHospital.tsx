@@ -1,11 +1,13 @@
 /*
  * RegisterHospital.tsx — Hospital self-registration screen.
  *
- * Registration is deliberately two-stage: Supabase Auth must create an
- * authenticated browser session before RLS-protected hospital records can be
- * created. If email confirmation is enabled, Supabase may return a user with
- * no session; in that case we stop cleanly and tell the user to confirm email
- * and sign in rather than showing a misleading generic "Registration failed".
+ * Registration supports both Supabase configurations:
+ *   - If email confirmation is disabled, the authenticated session is used
+ *     immediately to create the hospital and membership.
+ *   - If email confirmation is enabled, the Auth account is created first and
+ *     the non-sensitive hospital details are kept locally. After the user
+ *     confirms the email and signs in, AuthContext completes the hospital and
+ *     hospital_users records while an authenticated RLS session is present.
  */
 
 import { useState } from 'react';
@@ -28,6 +30,16 @@ const CITY_COORDS: Record<string, { lat: number; lng: number }> = {
   'Kolkata': { lat: 22.5726, lng: 88.3639 },
   'Ahmedabad': { lat: 23.0225, lng: 72.5714 },
 };
+
+export const PENDING_REGISTRATION_KEY = 'medrebalance:pending-registration';
+
+interface PendingRegistration {
+  email: string;
+  hospitalName: string;
+  address: string;
+  city: string;
+  hospitalType: string;
+}
 
 function readableError(error: unknown): string {
   if (error instanceof Error && error.message.trim()) return error.message;
@@ -70,6 +82,13 @@ export default function RegisterHospital({ onBack }: Props) {
 
     try {
       const normalizedEmail = email.trim().toLowerCase();
+      const pendingRegistration: PendingRegistration = {
+        email: normalizedEmail,
+        hospitalName: hospitalName.trim(),
+        address: address.trim(),
+        city,
+        hospitalType,
+      };
 
       // Step 1: Create the Supabase Auth user.
       const { data: authData, error: authError } = await retry(() => supabase.auth.signUp({
@@ -79,44 +98,23 @@ export default function RegisterHospital({ onBack }: Props) {
       if (authError) throw authError;
       if (!authData.user) throw new Error('Supabase did not return a user account.');
 
+      // Keep only non-sensitive registration details. Never store the password.
+      // AuthContext consumes this after email confirmation and an authenticated login.
+      localStorage.setItem(PENDING_REGISTRATION_KEY, JSON.stringify(pendingRegistration));
+
       // When email confirmation is enabled, signUp succeeds but session is null.
-      // RLS intentionally blocks unauthenticated inserts, so don't attempt them.
+      // Keep the registration pending instead of losing the hospital details.
       if (!authData.session) {
-        const message = `Account created, but Supabase requires email confirmation before the hospital can be created. Check ${normalizedEmail} for the confirmation email, then sign in with the same password.`;
+        const message = `Account created. Check ${normalizedEmail} for the confirmation email, confirm it, then sign in with the same password. Your hospital setup will finish automatically.`;
         setErrors({ form: message });
         toast(message, 'success');
         return;
       }
 
-      const userId = authData.user.id;
-      const coords = CITY_COORDS[city];
-
-      // Step 2: Insert hospital while the new authenticated session is active.
-      const { data: hospitalData, error: hospitalError } = await retry(() => supabase
-        .from('hospitals')
-        .insert({
-          name: hospitalName.trim(),
-          address: `${address.trim()}, ${city}`,
-          lat: coords.lat,
-          lng: coords.lng,
-          type: hospitalType,
-        })
-        .select()
-        .single());
-
-      if (hospitalError) throw hospitalError;
-
-      // Step 3: Link the new Auth user to the hospital as an admin.
-      const { error: linkError } = await retry(() => supabase.from('hospital_users').insert({
-        user_id: userId,
-        hospital_id: hospitalData.id,
-        role: 'admin',
-      }));
-
-      if (linkError) throw linkError;
-
-      toast('Hospital registered successfully', 'success');
-      // AuthContext picks up the session and routes to the dashboard.
+      // With confirmation disabled, the active session lets AuthContext finish
+      // the pending registration immediately.
+      toast('Account created. Finishing hospital setup...', 'success');
+      window.location.reload();
     } catch (err) {
       const raw = readableError(err);
       let msg = raw;
