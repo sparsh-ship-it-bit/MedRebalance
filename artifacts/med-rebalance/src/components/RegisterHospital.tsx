@@ -4,6 +4,8 @@ import { supabase } from '@/lib/supabase';
 import { useToast } from '@/components/Toast';
 
 interface Props { onBack: () => void; }
+export const PENDING_REGISTRATION_KEY = 'medrebalance:pending-registration';
+
 const CITY_COORDS: Record<string, { lat: number; lng: number }> = {
   Mumbai: { lat: 19.076, lng: 72.8777 }, Delhi: { lat: 28.6139, lng: 77.209 },
   Bangalore: { lat: 12.9716, lng: 77.5946 }, Chennai: { lat: 13.0827, lng: 80.2707 },
