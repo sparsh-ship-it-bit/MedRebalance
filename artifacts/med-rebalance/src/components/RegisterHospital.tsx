@@ -1,17 +1,11 @@
 /*
  * RegisterHospital.tsx — Hospital self-registration screen.
  *
- * Role in the architecture:
- *   Lets a new hospital join the MedRebalance network. The flow is:
- *     1. Collect hospital details (name, address, city → lat/lng, type) and
- *        admin credentials (email, password).
- *     2. Call supabase.auth.signUp() to create the auth user.
- *     3. Insert a row into `hospitals`.
- *     4. Insert a row into `hospital_users` linking the new user to the new
- *        hospital with role 'admin'.
- *   On success, the AuthContext listener picks up the session and App.tsx
- *   routes to the dashboard. The city dropdown maps to preset coordinates
- *   so non-technical users don't need to know lat/lng.
+ * Registration is deliberately two-stage: Supabase Auth must create an
+ * authenticated browser session before RLS-protected hospital records can be
+ * created. If email confirmation is enabled, Supabase may return a user with
+ * no session; in that case we stop cleanly and tell the user to confirm email
+ * and sign in rather than showing a misleading generic "Registration failed".
  */
 
 import { useState } from 'react';
@@ -35,6 +29,17 @@ const CITY_COORDS: Record<string, { lat: number; lng: number }> = {
   'Ahmedabad': { lat: 23.0225, lng: 72.5714 },
 };
 
+function readableError(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === 'string' && error.trim()) return error;
+  try {
+    const value = JSON.stringify(error);
+    return value && value !== '{}' ? value : 'Registration failed for an unknown reason';
+  } catch {
+    return 'Registration failed for an unknown reason';
+  }
+}
+
 export default function RegisterHospital({ onBack }: Props) {
   const { toast } = useToast();
   const [hospitalName, setHospitalName] = useState('');
@@ -51,7 +56,7 @@ export default function RegisterHospital({ onBack }: Props) {
     if (!hospitalName.trim()) e.hospitalName = 'Hospital name is required';
     if (!address.trim()) e.address = 'Address is required';
     if (!email.trim()) e.email = 'Email is required';
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) e.email = 'Invalid email format';
+    else if (!/^([^\s@]+)@([^\s@]+)\.([^\s@]+)$/.test(email)) e.email = 'Invalid email format';
     if (password.length < 6) e.password = 'Password must be at least 6 characters';
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -64,18 +69,29 @@ export default function RegisterHospital({ onBack }: Props) {
     setErrors({});
 
     try {
-      // Step 1: Create auth user
+      const normalizedEmail = email.trim().toLowerCase();
+
+      // Step 1: Create the Supabase Auth user.
       const { data: authData, error: authError } = await retry(() => supabase.auth.signUp({
-        email,
+        email: normalizedEmail,
         password,
       }));
       if (authError) throw authError;
-      if (!authData.user) throw new Error('Failed to create user account');
+      if (!authData.user) throw new Error('Supabase did not return a user account.');
+
+      // When email confirmation is enabled, signUp succeeds but session is null.
+      // RLS intentionally blocks unauthenticated inserts, so don't attempt them.
+      if (!authData.session) {
+        const message = `Account created, but Supabase requires email confirmation before the hospital can be created. Check ${normalizedEmail} for the confirmation email, then sign in with the same password.`;
+        setErrors({ form: message });
+        toast(message, 'success');
+        return;
+      }
 
       const userId = authData.user.id;
       const coords = CITY_COORDS[city];
 
-      // Step 2: Insert hospital
+      // Step 2: Insert hospital while the new authenticated session is active.
       const { data: hospitalData, error: hospitalError } = await retry(() => supabase
         .from('hospitals')
         .insert({
@@ -90,7 +106,7 @@ export default function RegisterHospital({ onBack }: Props) {
 
       if (hospitalError) throw hospitalError;
 
-      // Step 3: Link user to hospital with admin role
+      // Step 3: Link the new Auth user to the hospital as an admin.
       const { error: linkError } = await retry(() => supabase.from('hospital_users').insert({
         user_id: userId,
         hospital_id: hospitalData.id,
@@ -100,9 +116,18 @@ export default function RegisterHospital({ onBack }: Props) {
       if (linkError) throw linkError;
 
       toast('Hospital registered successfully', 'success');
-      // AuthContext will pick up the session automatically
+      // AuthContext picks up the session and routes to the dashboard.
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Registration failed';
+      const raw = readableError(err);
+      let msg = raw;
+      const lower = raw.toLowerCase();
+      if (lower.includes('user already registered') || lower.includes('already been registered')) {
+        msg = 'This email is already registered. Sign in instead, or use a different email address.';
+      } else if (lower.includes('email rate limit') || lower.includes('rate limit')) {
+        msg = 'Supabase email rate limit reached. Wait a little while and try again.';
+      } else if (lower.includes('invalid api key') || lower.includes('apikey')) {
+        msg = 'Supabase configuration is invalid. Check the VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY settings in Render.';
+      }
       setErrors({ form: msg });
       toast(msg, 'error');
     } finally {
@@ -113,7 +138,6 @@ export default function RegisterHospital({ onBack }: Props) {
   return (
     <div className="min-h-[100dvh] bg-[#f4f9f8] flex items-center justify-center px-4 py-8">
       <div className="w-full max-w-2xl">
-        {/* Logo */}
         <div className="flex flex-col items-center mb-6">
           <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-[#0f766e] shadow-lg shadow-teal-900/15 mb-3">
             <Activity className="w-7 h-7 text-white" strokeWidth={2.5} />
@@ -124,29 +148,18 @@ export default function RegisterHospital({ onBack }: Props) {
 
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Hospital details */}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Hospital Name</label>
               <div className="relative">
                 <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input data-testid="input-register-hospital-name"
-                  value={hospitalName}
-                  onChange={(e) => setHospitalName(e.target.value)}
-                  placeholder="e.g. Lifeline General Hospital"
-                  className={`input pl-10 ${errors.hospitalName ? 'border-red-300' : ''}`}
-                />
+                <input data-testid="input-register-hospital-name" value={hospitalName} onChange={(e) => setHospitalName(e.target.value)} placeholder="e.g. Lifeline General Hospital" className={`input pl-10 ${errors.hospitalName ? 'border-red-300' : ''}`} />
               </div>
               {errors.hospitalName && <p className="text-xs text-red-500 mt-1">{errors.hospitalName}</p>}
             </div>
 
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Address</label>
-              <input data-testid="input-register-address"
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                placeholder="Street address, area"
-                className={`input ${errors.address ? 'border-red-300' : ''}`}
-              />
+              <input data-testid="input-register-address" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Street address, area" className={`input ${errors.address ? 'border-red-300' : ''}`} />
               {errors.address && <p className="text-xs text-red-500 mt-1">{errors.address}</p>}
             </div>
 
@@ -155,27 +168,15 @@ export default function RegisterHospital({ onBack }: Props) {
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">City</label>
                 <div className="relative">
                   <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <select data-testid="input-register-city"
-                    value={city}
-                    onChange={(e) => setCity(e.target.value)}
-                    className="input pl-10"
-                  >
-                    {Object.keys(CITY_COORDS).map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
+                  <select data-testid="input-register-city" value={city} onChange={(e) => setCity(e.target.value)} className="input pl-10">
+                    {Object.keys(CITY_COORDS).map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
-                <p className="text-xs text-slate-400 mt-1">
-                  Lat: {CITY_COORDS[city].lat}, Lng: {CITY_COORDS[city].lng}
-                </p>
+                <p className="text-xs text-slate-400 mt-1">Lat: {CITY_COORDS[city].lat}, Lng: {CITY_COORDS[city].lng}</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">Hospital Type</label>
-                <select data-testid="input-register-hospital-type"
-                  value={hospitalType}
-                  onChange={(e) => setHospitalType(e.target.value)}
-                  className="input"
-                >
+                <select data-testid="input-register-hospital-type" value={hospitalType} onChange={(e) => setHospitalType(e.target.value)} className="input">
                   <option value="General Hospital">General Hospital</option>
                   <option value="Childrens Hospital">Childrens Hospital</option>
                   <option value="Heart Institute">Heart Institute</option>
@@ -185,22 +186,13 @@ export default function RegisterHospital({ onBack }: Props) {
               </div>
             </div>
 
-            {/* Divider */}
-            <div className="pt-2 border-t border-slate-100">
-              <p className="text-sm font-medium text-slate-700 mb-3">Admin Account</p>
-            </div>
+            <div className="pt-2 border-t border-slate-100"><p className="text-sm font-medium text-slate-700 mb-3">Admin Account</p></div>
 
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Admin Email</label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input data-testid="input-register-email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@hospital.com"
-                  className={`input pl-10 ${errors.email ? 'border-red-300' : ''}`}
-                />
+                <input data-testid="input-register-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="admin@hospital.com" className={`input pl-10 ${errors.email ? 'border-red-300' : ''}`} />
               </div>
               {errors.email && <p className="text-xs text-red-500 mt-1">{errors.email}</p>}
             </div>
@@ -209,37 +201,16 @@ export default function RegisterHospital({ onBack }: Props) {
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Password</label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input data-testid="input-register-password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="At least 6 characters"
-                  className={`input pl-10 ${errors.password ? 'border-red-300' : ''}`}
-                />
+                <input data-testid="input-register-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 6 characters" className={`input pl-10 ${errors.password ? 'border-red-300' : ''}`} />
               </div>
               {errors.password && <p className="text-xs text-red-500 mt-1">{errors.password}</p>}
             </div>
 
-            {errors.form && (
-              <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{errors.form}</p>
-            )}
+            {errors.form && <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg break-words">{errors.form}</p>}
 
             <div className="flex gap-3 pt-2">
-              <button data-testid="button-register-back"
-                type="button"
-                onClick={onBack}
-                className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Back to Login
-              </button>
-              <button data-testid="button-register-submit"
-                type="submit"
-                disabled={loading}
-                className="flex-1 px-5 py-2.5 bg-teal-600 text-white text-sm font-medium rounded-xl hover:bg-teal-700 transition-colors disabled:opacity-50 shadow-sm shadow-teal-600/20"
-              >
-                {loading ? 'Registering...' : 'Register Hospital'}
-              </button>
+              <button data-testid="button-register-back" type="button" onClick={onBack} className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"><ArrowLeft className="w-4 h-4" />Back to Login</button>
+              <button data-testid="button-register-submit" type="submit" disabled={loading} className="flex-1 px-5 py-2.5 bg-teal-600 text-white text-sm font-medium rounded-xl hover:bg-teal-700 transition-colors disabled:opacity-50 shadow-sm shadow-teal-600/20">{loading ? 'Registering...' : 'Register Hospital'}</button>
             </div>
           </form>
         </div>
