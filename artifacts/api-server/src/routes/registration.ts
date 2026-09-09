@@ -23,11 +23,11 @@ function allowed(req: Request): boolean {
 }
 
 function config() {
-  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceKey) {
-    throw new Error("Server registration is not configured. Add SUPABASE_SECRET_KEY to Render.");
-  }
+  const url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").trim();
+  const serviceKey = (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+  if (!url && !serviceKey) throw new Error("Server registration is missing both SUPABASE_URL and SUPABASE_SECRET_KEY.");
+  if (!url) throw new Error("Server registration is missing SUPABASE_URL.");
+  if (!serviceKey) throw new Error("Server registration is missing SUPABASE_SECRET_KEY.");
   return { url: url.replace(/\/$/, ""), serviceKey };
 }
 
@@ -35,8 +35,6 @@ async function supabaseRequest(path: string, init: RequestInit = {}) {
   const { url, serviceKey } = config();
   const headers = new Headers(init.headers);
   headers.set("apikey", serviceKey);
-  // Legacy service_role keys are JWTs and traditionally use Authorization.
-  // New sb_secret_ keys authenticate through apikey and should not be sent as JWTs.
   if (!serviceKey.startsWith("sb_secret_")) {
     headers.set("Authorization", `Bearer ${serviceKey}`);
   }
@@ -68,7 +66,6 @@ router.post("/register-hospital", async (req, res) => {
   let userId: string | undefined;
   let hospitalId: string | undefined;
   try {
-    // Admin Auth creates a confirmed user without sending a confirmation email.
     const authResponse = await supabaseRequest("/auth/v1/admin/users", {
       method: "POST",
       body: JSON.stringify({ email: normalizedEmail, password, email_confirm: true, user_metadata: { hospital_name: hospitalName.trim() } }),
