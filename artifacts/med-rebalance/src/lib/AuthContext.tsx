@@ -1,10 +1,10 @@
 /*
  * AuthContext.tsx — Central authentication and authorization state for MedRebalance.
  *
- * Tracks the Supabase session and the current user's hospital + role. It also
- * completes a pending hospital registration after an email-confirmed user
- * signs in, so registration works whether Supabase email confirmation is on
- * or off.
+ * Tracks the Supabase session, all hospital memberships available to the signed-in
+ * user, and the currently selected workspace. A role-gate selection is stored only
+ * for the current browser session and is accepted only when that role exists in
+ * hospital_users for the authenticated account.
  */
 
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
@@ -15,6 +15,11 @@ import { PENDING_REGISTRATION_KEY } from '@/components/RegisterHospital';
 
 export type UserRole = 'pharmacist' | 'admin' | 'network_admin';
 
+export interface UserMembership {
+  hospitalId: string;
+  role: UserRole;
+}
+
 export interface AppUser {
   hospitalId: string | null;
   role: UserRole;
@@ -24,8 +29,10 @@ export interface AppUser {
 interface AuthContextValue {
   session: Session | null;
   user: AppUser | null;
+  memberships: UserMembership[];
   loading: boolean;
   signOut: () => Promise<void>;
+  switchWorkspace: (role: UserRole, hospitalId?: string) => boolean;
 }
 
 interface PendingRegistration {
@@ -36,12 +43,24 @@ interface PendingRegistration {
   hospitalType: string;
 }
 
+const AUTHORIZED_GATE_ROLE_KEY = 'medrebalance.authorizedGateRole';
+
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');
   return ctx;
+}
+
+function readGateRole(): UserRole | null {
+  const value = sessionStorage.getItem(AUTHORIZED_GATE_ROLE_KEY);
+  if (value === 'pharmacist' || value === 'admin' || value === 'network_admin') return value;
+  return null;
+}
+
+function clearGateRole() {
+  sessionStorage.removeItem(AUTHORIZED_GATE_ROLE_KEY);
 }
 
 async function completePendingRegistration(uid: string, email: string): Promise<boolean> {
@@ -72,11 +91,12 @@ async function completePendingRegistration(uid: string, email: string): Promise<
   };
   const location = coords[pending.city] ?? coords.Mumbai;
 
-  // If the user already has a membership, registration was completed earlier.
+  // Only inspect one row here; a user may legitimately have multiple memberships.
   const { data: existing, error: existingError } = await retry(() => supabase
     .from('hospital_users')
-    .select('hospital_id, role')
+    .select('hospital_id')
     .eq('user_id', uid)
+    .limit(1)
     .maybeSingle());
   if (existingError) throw existingError;
   if (existing) {
@@ -103,11 +123,7 @@ async function completePendingRegistration(uid: string, email: string): Promise<
     role: 'admin',
   }));
 
-  if (linkError) {
-    // Do not silently discard the pending registration. The next authenticated
-    // session can retry the membership link; this is safer than losing setup.
-    throw linkError;
-  }
+  if (linkError) throw linkError;
 
   localStorage.removeItem(PENDING_REGISTRATION_KEY);
   return true;
@@ -116,7 +132,29 @@ async function completePendingRegistration(uid: string, email: string): Promise<
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<AppUser | null>(null);
+  const [memberships, setMemberships] = useState<UserMembership[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const applyMembership = useCallback((available: UserMembership[], email: string) => {
+    const requestedRole = readGateRole();
+    const requested = requestedRole ? available.find((item) => item.role === requestedRole) : undefined;
+    const selected = requested ?? available[0];
+
+    if (!selected) {
+      setUser({ hospitalId: null, role: 'pharmacist', email });
+      clearGateRole();
+      return;
+    }
+
+    setUser({
+      hospitalId: selected.hospitalId,
+      role: selected.role,
+      email,
+    });
+
+    // A gate credential is a one-time workspace selection, not a persistent role.
+    clearGateRole();
+  }, []);
 
   const fetchUser = useCallback(async (uid: string, email: string) => {
     try {
@@ -128,25 +166,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data, error } = await retry(() => supabase
       .from('hospital_users')
       .select('hospital_id, role')
-      .eq('user_id', uid)
-      .maybeSingle());
+      .eq('user_id', uid));
 
     if (error) {
       console.error('Failed to fetch hospital_users:', error);
+      setMemberships([]);
       setUser(null);
       return;
     }
 
-    if (data) {
-      setUser({
-        hospitalId: data.hospital_id as string,
-        role: data.role as UserRole,
-        email,
-      });
-    } else {
-      setUser({ hospitalId: null, role: 'pharmacist', email });
-    }
-  }, []);
+    const available = (data ?? []).map((row) => ({
+      hospitalId: row.hospital_id as string,
+      role: row.role as UserRole,
+    }));
+
+    setMemberships(available);
+    applyMembership(available, email);
+  }, [applyMembership]);
 
   useEffect(() => {
     retry(() => supabase.auth.getSession()).then(({ data: { session: s } }) => {
@@ -167,6 +203,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         void fetchUser(s.user.id, s.user.email ?? '');
       } else {
         setUser(null);
+        setMemberships([]);
       }
     });
 
@@ -175,13 +212,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [fetchUser]);
 
+  const switchWorkspace = useCallback((role: UserRole, hospitalId?: string) => {
+    const selected = memberships.find((item) => item.role === role && (!hospitalId || item.hospitalId === hospitalId));
+    if (!selected) return false;
+
+    setUser((current) => current ? {
+      ...current,
+      hospitalId: selected.hospitalId,
+      role: selected.role,
+    } : current);
+    return true;
+  }, [memberships]);
+
   const signOut = useCallback(async () => {
     await retry(() => supabase.auth.signOut());
+    clearGateRole();
     setUser(null);
+    setMemberships([]);
   }, []);
 
   return (
-    <AuthContext.Provider value={{ session, user, loading, signOut }}>
+    <AuthContext.Provider value={{ session, user, memberships, loading, signOut, switchWorkspace }}>
       {children}
     </AuthContext.Provider>
   );
