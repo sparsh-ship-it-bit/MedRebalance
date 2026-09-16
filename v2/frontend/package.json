@@ -1,0 +1,6 @@
+{
+  "name":"medrebalance-v2-frontend",
+  "private":true,
+  "scripts":{"build":"tsc"},
+  "devDependencies":{"typescript":"^5.8.3"}
+}
