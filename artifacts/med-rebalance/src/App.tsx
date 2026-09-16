@@ -21,6 +21,7 @@ import PharmacistDashboard from '@/components/PharmacistDashboard';
 import AdminDashboard from '@/components/AdminDashboard';
 import LoginScreen from '@/components/LoginScreen';
 import RegisterHospital from '@/components/RegisterHospital';
+import RoleSwitcher from '@/components/RoleSwitcher';
 import {
   fetchNotifications,
   markAllNotificationsRead,
@@ -55,6 +56,7 @@ function AppContent() {
 
 function Workspace({ user, signOut }: { user: any; signOut: () => Promise<void> }) {
   const { toast } = useToast();
+  const { memberships } = useAuth();
   const isNetworkAdmin = user?.role === 'network_admin';
   const [view, setView] = useState<WorkspaceView>('overview');
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -80,8 +82,14 @@ function Workspace({ user, signOut }: { user: any; signOut: () => Promise<void> 
     if (next === 'notifications') loadNotifications();
   };
 
+  const handleWorkspaceSwitch = () => {
+    setView('overview');
+    setMobileOpen(false);
+  };
+
   const roleLabel = isNetworkAdmin ? 'Network administrator' : user?.role === 'admin' ? 'Hospital administrator' : 'Pharmacy operations';
   const initials = (user?.email ?? 'MR').slice(0, 2).toUpperCase();
+  const hasMultipleRoles = new Set(memberships.map((membership) => membership.role)).size > 1;
 
   return (
     <div className="min-h-[100dvh] bg-[#f7fafc] text-slate-900">
@@ -105,6 +113,7 @@ function Workspace({ user, signOut }: { user: any; signOut: () => Promise<void> 
             </div>
           </div>
           <div className="flex items-center gap-2 sm:gap-4">
+            {hasMultipleRoles && <RoleSwitcher onSwitched={handleWorkspaceSwitch} />}
             <div className="hidden items-center gap-2 border-r border-slate-200 pr-4 text-right sm:flex">
               <div>
                 <div className="text-sm font-semibold text-slate-700">{roleLabel}</div>
@@ -139,6 +148,7 @@ function Workspace({ user, signOut }: { user: any; signOut: () => Promise<void> 
           <button data-testid="button-close-navigation" onClick={() => setMobileOpen(false)} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"><X className="h-4 w-4" /></button>
         </div>
         <div className="px-3 pb-2 text-[10px] font-bold uppercase tracking-[.18em] text-slate-400">Workspace</div>
+        {hasMultipleRoles && <div className="mb-4 lg:hidden"><RoleSwitcher onSwitched={handleWorkspaceSwitch} /></div>}
         <NavItem active={view === 'overview'} icon={<LayoutDashboard />} label="Operations overview" onClick={() => navigate('overview')} testId="nav-overview" />
         <NavItem active={view === 'notifications'} icon={<Bell />} label="Notifications" count={unread} onClick={() => navigate('notifications')} testId="nav-notifications" />
         <div className="mt-7 px-3 pb-2 text-[10px] font-bold uppercase tracking-[.18em] text-slate-400">Governance</div>
