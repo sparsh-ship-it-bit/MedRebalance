@@ -21,6 +21,18 @@ function isRetryable(error: unknown): boolean {
   return !candidate.code || /network|timeout|fetch|temporar/i.test(candidate.message ?? '');
 }
 
+function normalizeError(error: unknown): Error {
+  if (error instanceof Error) return error;
+  if (error && typeof error === 'object') {
+    const candidate = error as { message?: string; code?: string; details?: string; hint?: string };
+    const message = candidate.message || candidate.details || candidate.hint || 'Request failed';
+    const normalized = new Error(message);
+    if (candidate.code) normalized.name = `SupabaseError[${candidate.code}]`;
+    return normalized;
+  }
+  return new Error(typeof error === 'string' ? error : 'Request failed');
+}
+
 export async function retry<T>(
   fn: () => Promise<T>,
   maxRetries: number = DEFAULT_MAX_RETRIES,
@@ -32,7 +44,7 @@ export async function retry<T>(
     try {
       return await fn();
     } catch (error) {
-      lastError = error;
+      lastError = normalizeError(error);
       if (attempt < maxRetries && isRetryable(error)) {
         const delay = baseDelay * Math.pow(2, attempt);
         await new Promise((resolve) => setTimeout(resolve, delay));
@@ -42,5 +54,5 @@ export async function retry<T>(
     }
   }
 
-  throw lastError;
+  throw normalizeError(lastError);
 }
