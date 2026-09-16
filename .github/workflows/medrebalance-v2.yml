@@ -1,0 +1,34 @@
+name: MedRebalance V2 build
+
+on:
+  push:
+    paths:
+      - 'v2/**'
+      - '.github/workflows/medrebalance-v2.yml'
+  pull_request:
+    paths:
+      - 'v2/**'
+      - '.github/workflows/medrebalance-v2.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build TypeScript
+        working-directory: v2/frontend
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+          cp index.html style.css dist/
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: Build Go API
+        working-directory: v2/backend
+        run: go build ./...
+      - name: Build production image
+        run: docker build -f v2/Dockerfile v2
