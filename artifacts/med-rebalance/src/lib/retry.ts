@@ -42,7 +42,18 @@ export async function retry<T>(
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      return await fn();
+      const result = await fn();
+
+      // Supabase queries normally resolve with { data, error } instead of
+      // rejecting their promise. Treat a returned Supabase error like a
+      // thrown error so callers get the real database message and retryable
+      // failures are handled consistently.
+      if (result && typeof result === 'object' && 'error' in result) {
+        const possibleError = (result as { error?: unknown }).error;
+        if (possibleError) throw normalizeError(possibleError);
+      }
+
+      return result;
     } catch (error) {
       lastError = normalizeError(error);
       if (attempt < maxRetries && isRetryable(error)) {
